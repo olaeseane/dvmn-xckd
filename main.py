@@ -12,6 +12,7 @@ VK_URL_METHOD = 'https://api.vk.com/method'
 
 
 def get_random_xkcd_comics():
+    """ download random comics from xkcd.com """
     # define the total number of comics
     response = requests.get(COMICS_URL.format('/'))
     response.raise_for_status()
@@ -24,67 +25,80 @@ def get_random_xkcd_comics():
         response.raise_for_status()
         comics = response.json()
         comics_image_url = comics['img']
-        comics_image_name = comics['img'].split('/')[-1]
+        (_, comics_image_name) = os.path.split(comics['img'])
         comics_title = comics['alt']
         download_image(comics_image_url, comics_image_name)
         return {'title': comics_title, 'image': comics_image_name}
 
 
-def main():
-    load_dotenv()
-    VK_ACCESS_TOKEN = os.getenv('VK_ACCESS_TOKEN')
-    VK_GROUP_ID = os.getenv('VK_GROUP_ID')
-    params = {'group_id': VK_GROUP_ID,
-              'access_token': VK_ACCESS_TOKEN, 'v': '5.126'}
-    urllib3.disable_warnings()
-
-    comics = get_random_xkcd_comics()
-
-    # get link to upload server
+def get_upload_server(params):
+    """ get link to upload server """
     response = requests.get(
         f'{VK_URL_METHOD}/photos.getWallUploadServer', params=params)
     response.raise_for_status()
     wall_upload_server = response.json()['response']
     if 'error' in wall_upload_server:
-        print(wall_upload_server['error']['error_msg'])
-        return
+        raise Exception(wall_upload_server['error']['error_msg'])
+    return wall_upload_server
 
-    # upload comics image into server
-    with open(comics['image'], 'rb') as file:
-        url = wall_upload_server['upload_url']
+
+def upload_image(image, upload_server_url):
+    """ upload comics image into server """
+    with open(image, 'rb') as file:
         files = {
             'photo': file,
         }
-        response = requests.post(url, files=files)
+        response = requests.post(upload_server_url, files=files)
         response.raise_for_status()
-        upload_photo = response.json()
-        if not upload_photo['photo']:
-            return
+        uploaded_image = response.json()
+        if not uploaded_image['photo']:
+            raise Exception('Can\'t upload image')
+        return uploaded_image
 
-    # save comics image in albom
-    params['photo'] = upload_photo['photo']
-    params['server'] = upload_photo['server']
-    params['hash'] = upload_photo['hash']
+
+def save_image(params, image):
+    """ post comics on group """
+    params['photo'] = image['photo']
+    params['server'] = image['server']
+    params['hash'] = image['hash']
     response = requests.post(
         f'{VK_URL_METHOD}/photos.saveWallPhoto', params=params)
     response.raise_for_status()
     wall_photo = response.json()['response'][0]
     if 'error' in wall_photo:
-        print(wall_photo['error']['error_msg'])
-        return
+        raise Exception(wall_photo['error']['error_msg'])
+    return wall_photo
 
-    # publish comics on group
-    params['owner_id'] = -(int(VK_GROUP_ID))
+
+def post_image(params, comics, image):
+    """ post comics on group """
+    params['owner_id'] = -(int(params['group_id']))
     params['from_group'] = 1
-    params['attachments'] = f'photo{wall_photo["owner_id"]}_{wall_photo["id"]}'
+    params['attachments'] = f'photo{image["owner_id"]}_{image["id"]}'
     params['message'] = comics['title']
     response = requests.post(
         f'{VK_URL_METHOD}/wall.post', params=params)
     response.raise_for_status()
     uploaded_wall_post = response.json()['response']
     if 'error' in uploaded_wall_post:
-        print(uploaded_wall_post['error']['error_msg'])
-        return
+        raise Exception(uploaded_wall_post['error']['error_msg'])
+
+
+def main():
+    urllib3.disable_warnings()
+
+    load_dotenv()
+    VK_ACCESS_TOKEN = os.getenv('VK_ACCESS_TOKEN')
+    VK_GROUP_ID = os.getenv('VK_GROUP_ID')
+
+    params = {'group_id': VK_GROUP_ID,
+              'access_token': VK_ACCESS_TOKEN, 'v': '5.126'}
+
+    comics = get_random_xkcd_comics()
+    upload_server = get_upload_server(params)
+    uploaded_image = upload_image(comics['image'], upload_server['upload_url'])
+    saved_image = save_image(params, uploaded_image)
+    post_image(params, comics, saved_image)
 
     Path(comics['image']).unlink()
 
