@@ -85,22 +85,33 @@ def post_image(params, comics, image):
 
 
 def main():
-    urllib3.disable_warnings()
+    comics = None
+    try:
+        urllib3.disable_warnings()
 
-    load_dotenv()
-    VK_ACCESS_TOKEN = os.getenv('VK_ACCESS_TOKEN')
-    VK_GROUP_ID = os.getenv('VK_GROUP_ID')
+        load_dotenv()
+        VK_ACCESS_TOKEN = os.getenv('VK_ACCESS_TOKEN')
+        VK_GROUP_ID = os.getenv('VK_GROUP_ID')
 
-    params = {'group_id': VK_GROUP_ID,
-              'access_token': VK_ACCESS_TOKEN, 'v': '5.126'}
+        params = {'group_id': VK_GROUP_ID,
+                  'access_token': VK_ACCESS_TOKEN, 'v': '5.126'}
 
-    comics = get_random_xkcd_comics()
-    upload_server = get_upload_server(params)
-    uploaded_image = upload_image(comics['image'], upload_server['upload_url'])
-    saved_image = save_image(params, uploaded_image)
-    post_image(params, comics, saved_image)
+        comics = get_random_xkcd_comics()
+        upload_server = get_upload_server(params)
+        uploaded_image = upload_image(
+            comics['image'], upload_server['upload_url'])
+        saved_image = save_image(params, uploaded_image)
+        post_image(params, comics, saved_image)
 
-    Path(comics['image']).unlink()
+    except requests.exceptions.ConnectionError as conn_err:
+        print(f"ConnectionError occured - {conn_err}")
+    except requests.exceptions.HTTPError as http_err:
+        print(f"HTTPError occured - {http_err}")
+    except Exception as err:
+        print(f'Other error occured - {err}')
+
+    finally:
+        Path(comics['image']).unlink()
 
 
 if __name__ == '__main__':
